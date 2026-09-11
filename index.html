@@ -47,10 +47,59 @@ const ref=new URLSearchParams(location.search).get("ref")||"vll-corales-4",cat=d
 const money=n=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(n);
 function dateDR(){let p=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Santo_Domingo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()),o=Object.fromEntries(p.map(x=>[x.type,x.value]));return `${o.year}-${o.month}-${o.day}`}
 function msg(s){notice.textContent=s;notice.classList.add("show")}
-items.forEach(a=>{let c=document.createElement("article");c.className="card";c.innerHTML=`<div class="pic">${a.b?`<span class="badge">${a.b}</span>`:""}${a.e}</div><div class="body"><h2>${a.t}</h2><p class="desc">${a.d}</p><div class="price">From ${money(a.p)}</div><div class="meta">🕒 ${a.x}</div><div class="meta">🚐 Pickup available</div><button class="book" ${a.live?"":"disabled"}>${a.live?"BOOK NOW":"COMING IN BETA"}</button><div class="panel"><div class="row"><div><label>DATE</label><input class="date" type="date" min="${dateDR()}" value="${dateDR()}"></div><div><label>GUESTS</label><select class="pax">${[1,2,3,4,5,6,7,8].map(n=>`<option>${n}</option>`).join("")}</select></div></div><label>TIME / DEPARTURE</label><select class="time"><option>09:00</option><option>11:00</option><option>14:00</option><option>16:00</option></select><div class="total"></div><button class="pay">CONTINUE TO PAYPAL</button></div></div>`;cat.appendChild(c);if(!a.live)return;let panel=c.querySelector(".panel"),pax=c.querySelector(".pax"),total=c.querySelector(".total");let upd=()=>total.textContent="Total: "+money(a.p*+pax.value);c.querySelector(".book").onclick=()=>{panel.classList.toggle("open");upd()};pax.onchange=upd;upd();c.querySelector(".pay").onclick=()=>pay(a,c)});
+const CATALOG=SB+"/functions/v1/get-activity-catalog";
+// Public anon credential; catalog access is read-only and limited to public fields.
+const CATALOG_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZtcGl6ZXRubmx0ZHB2bHh2dWV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwNzMwNDksImV4cCI6MjEwNDY0OTA0OX0.uZQwJJKKUyPPmHQV6U-NyGo-rfT-2Dc0cocPO-NuvEM";
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function pricing(a,pax){
+  const type=a.pricing_type, price=Number(a.base_price_usd);
+  const positiveInt=n=>Number.isInteger(n)&&n>0;
+  const min=a.min_guests==null?1:Number(a.min_guests), max=a.max_guests==null?null:Number(a.max_guests);
+  if(a.is_active!==true||a.base_price_usd==null||!Number.isFinite(price)||price<=0)return null;
+  let lo=min,hi=max==null?8:Math.min(max,8);
+  if(type==="fixed_package")lo=hi=Number(a.package_size);
+  else if(type==="private_charter"){lo=1;hi=max;}
+  else if(type!=="per_person")return null;
+  if(!positiveInt(lo)||!positiveInt(hi)||hi<lo)return null;
+  if(pax!==undefined&&(!positiveInt(pax)||pax<lo||pax>hi))return null;
+  return {min:lo,max:hi,total:type==="per_person"?price*(pax??lo):price};
+}
+async function fetchActivities(){
+  const r=await fetch(CATALOG,{headers:{Authorization:"Bearer "+CATALOG_KEY},cache:"no-store"});
+  if(!r.ok)throw Error("Catalog unavailable");
+  const d=await r.json();if(!Array.isArray(d.activities))throw Error("Catalog unavailable");return d.activities;
+}
+function renderActivity(a){
+  const original=items.find(x=>x.id===a.id);
+  const style=original||items.find(x=>a.title.startsWith("Parasailing")?x.k==="para":a.title.startsWith("Deep Sea Fishing")?x.k==="fish":false);
+  if(!style)return;
+  const bounds=pricing(a),fixed=a.pricing_type==="fixed_package",charter=a.pricing_type==="private_charter";
+  const times=(a.schedules||[]).map(x=>String(x.time_slot).slice(0,5)).sort();
+  // Preserve existing departures for legacy cards; new variants use their actual schedules.
+  if(!times.length&&original)times.push("09:00","11:00","14:00","16:00");
+  const available=!!bounds&&times.length>0;
+  const detail=fixed&&bounds?`${bounds.min} ${bounds.min===1?"person":"people"}`:charter?`Private Charter${bounds?` · Up to ${bounds.max} guests`:""}`:"per person";
+  const c=document.createElement("article");c.className="card";
+  c.innerHTML=`<div class="pic">${style.b?`<span class="badge">${style.b}</span>`:""}${style.e}</div><div class="body"><h2>${esc(a.title)}</h2><p class="desc">${style.d}</p><div class="price">US${money(Number(a.base_price_usd))}${fixed||charter?" total":""}</div><div class="meta">${esc(detail)}</div>${!fixed&&!charter?`<div class="meta">🕒 ${esc(style.x)}</div>`:""}<div class="meta">🚐 Pickup available</div><button class="book" ${available?"":"disabled"}>${available?"BOOK NOW":"COMING SOON"}</button><div class="panel"><div class="row"><div><label>DATE</label><input class="date" type="date" min="${dateDR()}" value="${dateDR()}"></div><div><label>GUESTS</label><select class="pax" ${fixed?"disabled":""}></select></div></div><label>TIME / DEPARTURE</label><select class="time">${times.map(t=>`<option>${esc(t)}</option>`).join("")}</select><div class="total"></div><button class="pay" ${available?"":"disabled"}>CONTINUE TO PAYPAL</button></div></div>`;
+  cat.appendChild(c);if(!available)return;
+  const panel=c.querySelector(".panel"),pax=c.querySelector(".pax"),total=c.querySelector(".total");
+  for(let n=bounds.min;n<=bounds.max;n++)pax.add(new Option(String(n),String(n)));
+  const upd=()=>{const quote=pricing(a,+pax.value);total.textContent=quote?"Total: US"+money(quote.total):"Please select your guests.";c.querySelector(".pay").disabled=!quote};
+  c.querySelector(".book").onclick=()=>{panel.classList.toggle("open");upd()};pax.onchange=upd;upd();c.querySelector(".pay").onclick=()=>pay(a,c);
+}
+async function loadCatalog(){
+  cat.textContent="Loading experiences…";
+  try{const activities=await fetchActivities();cat.textContent="";activities.forEach(renderActivity)}
+  catch{cat.textContent="";msg("Experiences are temporarily unavailable. Please refresh to try again.")}
+}
 async function post(u,b){let r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}),x=await r.text(),d;try{d=JSON.parse(x)}catch{d={error:x}}if(!r.ok)throw Error(d.error||d.message||"HTTP "+r.status);return d}
-async function pay(a,c){try{let bookingDate=c.querySelector(".date").value,timeSlot=c.querySelector(".time").value,paxCount=+c.querySelector(".pax").value,returnUrl=`${location.origin}${location.pathname}?paypal_return=1&ref=${encodeURIComponent(ref)}`;let o=await post(CREATE,{hostRef:ref,activityId:a.id,bookingDate,timeSlot,paxCount,returnUrl});sessionStorage.setItem("bws_pending",JSON.stringify({hostRef:ref,activityId:a.id,bookingDate,timeSlot,paxCount,orderID:o.orderID}));location.href=o.approvalUrl}catch(e){msg("Booking service unavailable: "+e.message)}}
+async function pay(a,c){const button=c.querySelector(".pay");button.disabled=true;try{
+// Refresh before checkout: removed activities or unconfirmed capacities cannot be purchased.
+const latest=(await fetchActivities()).find(x=>x.id===a.id), pax=+c.querySelector(".pax").value;
+if(!latest||!pricing(latest,pax)){msg("This experience is currently unavailable for the selected guests. Please refresh.");return}
+if(pricing(latest,pax).total!==pricing(a,pax)?.total){msg("The price has changed. Please refresh to see the current total.");return}
+let bookingDate=c.querySelector(".date").value,timeSlot=c.querySelector(".time").value,paxCount=+c.querySelector(".pax").value,returnUrl=`${location.origin}${location.pathname}?paypal_return=1&ref=${encodeURIComponent(ref)}`;let o=await post(CREATE,{hostRef:ref,activityId:a.id,bookingDate,timeSlot,paxCount,returnUrl});sessionStorage.setItem("bws_pending",JSON.stringify({hostRef:ref,activityId:a.id,bookingDate,timeSlot,paxCount,orderID:o.orderID}));location.href=o.approvalUrl}catch(e){msg("Booking service unavailable. Please try again shortly.")}finally{button.disabled=false}}
 async function loadTicket(code,orderID){try{let d=await post(TICKET,{bookingCode:code,orderID}),b=d.booking||d;cat.style.display="none";let ticket=document.querySelector("#ticket");ticket.classList.add("show");let property=b.host?.property_name||b.property_name||b.host_property_name||b.villa_name||"";let customer=b.customer_name||b.customer?.name||"";document.querySelector("#ticketMain").innerHTML=`<p><strong>Receipt ${b.booking_code||code}</strong></p><p>${customer?`Customer: <strong>${customer}</strong><br>`:""}${property?`Property: <strong>${property}</strong><br>`:""}<strong>${b.activity?.title||"BWS Experience"}</strong><br>${b.booking_date||""} · ${String(b.time_slot||"").slice(0,5)}<br>${b.pax_count||""} Guest(s)<br>Total: <strong>${money(+(b.total_amount_usd||0))}</strong> · <strong>PAID</strong></p>`;let ticketUrl=location.href,qr=document.querySelector("#ticketQr");qr.innerHTML="";new QRCode(qr,{text:ticketUrl,width:180,height:180,correctLevel:QRCode.CorrectLevel.M});document.querySelector("#copy").onclick=()=>navigator.clipboard.writeText(ticketUrl);document.querySelector("#wa").href="https://wa.me/?text="+encodeURIComponent("Bávaro Water Sports booking receipt: "+ticketUrl);document.querySelector("#printTicket").onclick=()=>window.print();document.querySelector("#saveTicket").onclick=async()=>{let btn=document.querySelector("#saveTicket"),old=btn.textContent;try{btn.textContent="Creating image…";btn.disabled=true;let canvas=await html2canvas(ticket,{scale:2,backgroundColor:"#ffffff",useCORS:true});let a=document.createElement("a");a.download=`${b.booking_code||code}-receipt.png`;a.href=canvas.toDataURL("image/png");a.click()}catch(err){msg("Unable to save receipt image: "+err.message)}finally{btn.textContent=old;btn.disabled=false}}}catch(e){msg("Unable to load booking receipt: "+e.message)}}
 async function returned(){let q=new URLSearchParams(location.search);if(q.get("paypal_return")!=="1")return;let p=JSON.parse(sessionStorage.getItem("bws_pending")||"null");if(!p)return;try{let orderID=q.get("token")||p.orderID,d=await post(CAPTURE,{...p,orderID}),b=d.booking||d,code=b.booking_code||b.bookingCode;history.replaceState({},"",`${location.pathname}?ticket=${encodeURIComponent(code)}&order=${encodeURIComponent(orderID)}`);loadTicket(code,orderID)}catch(e){msg("Payment return needs attention: "+e.message)}}
-let q=new URLSearchParams(location.search);q.get("ticket")&&q.get("order")?loadTicket(q.get("ticket"),q.get("order")):returned();
+let q=new URLSearchParams(location.search);q.get("ticket")&&q.get("order")?loadTicket(q.get("ticket"),q.get("order")):(loadCatalog(),returned());
 </script></body></html>
