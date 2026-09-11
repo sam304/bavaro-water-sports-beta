@@ -83,15 +83,55 @@ function renderActivity(a){
   const detail=fixed&&bounds?`${bounds.min} ${bounds.min===1?"person":"people"}`:charter?`Private Charter${bounds?` · Up to ${bounds.max} guests`:""}`:"per person";
   const c=document.createElement("article");c.className="card";
   c.innerHTML=`<div class="pic">${style.b?`<span class="badge">${style.b}</span>`:""}${style.e}<img src="assets/activities/${style.k}.webp" alt="${esc(a.title)} illustration" width="768" height="512" loading="lazy" decoding="async" onerror="this.remove()"></div><div class="body"><h2>${esc(a.title)}</h2><p class="desc">${style.d}</p><div class="price">US${money(Number(a.base_price_usd))}${fixed||charter?" total":""}</div><div class="meta">${esc(detail)}</div>${!fixed&&!charter?`<div class="meta">🕒 ${esc(style.x)}</div>`:""}<div class="meta">🚐 Pickup available</div><button class="book" ${available?"":"disabled"}>${available?"BOOK NOW":"COMING SOON"}</button><div class="panel"><div class="row"><div><label>DATE</label><input class="date" type="date" min="${dateDR()}" value="${dateDR()}"></div><div><label>GUESTS</label><select class="pax" ${fixed?"disabled":""}></select></div></div><label>TIME / DEPARTURE</label><select class="time">${times.map(t=>`<option>${esc(t)}</option>`).join("")}</select><div class="total"></div><button class="pay" ${available?"":"disabled"}>CONTINUE TO PAYPAL</button></div></div>`;
-  cat.appendChild(c);if(!available)return;
+  cat.appendChild(c);if(!available)return c;
   const panel=c.querySelector(".panel"),pax=c.querySelector(".pax"),total=c.querySelector(".total");
   for(let n=bounds.min;n<=bounds.max;n++)pax.add(new Option(String(n),String(n)));
   const upd=()=>{const quote=pricing(a,+pax.value);total.textContent=quote?"Total: US"+money(quote.total):"Please select your guests.";c.querySelector(".pay").disabled=!quote};
   c.querySelector(".book").onclick=()=>{panel.classList.toggle("open");upd()};pax.onchange=upd;upd();c.querySelector(".pay").onclick=()=>pay(a,c);
+  return c;
+}
+function activityGroup(a){
+  if(a.pricing_type==="fixed_package"&&a.title.startsWith("Parasailing"))return "Parasailing";
+  if(a.pricing_type==="private_charter"&&a.title.startsWith("Deep Sea Fishing"))return "Fishing Charter";
+  return a.id;
+}
+function variantLabel(a){
+  if(a.pricing_type==="fixed_package"){
+    const n=Number(a.package_size),name=({1:"Single",2:"Double",3:"Triple"})[n]||a.title;
+    return name+" · "+n+(n===1?" person flies":" people fly together")+" — US"+money(Number(a.base_price_usd))+" total";
+  }
+  const name=a.title.replace(/^Deep Sea Fishing\s*-\s*Charter\s*/,"").replace("4h AM","4 hours · Morning").replace("4h PM","4 hours · Afternoon").replace(/^8h$/,"8 hours");
+  return name+" — US"+money(Number(a.base_price_usd))+" total";
+}
+function renderGroup(variants){
+  const group=activityGroup(variants[0]);
+  if(group!=="Parasailing"&&group!=="Fishing Charter"){renderActivity(variants[0]);return}
+  const order=a=>group==="Parasailing"?Number(a.package_size):/4h AM/.test(a.title)?0:/4h PM/.test(a.title)?1:2;
+  variants.sort((a,b)=>order(a)-order(b));
+  let current;
+  function show(a){
+    const previous=current,open=previous?.querySelector(".panel").classList.contains("open"),date=previous?.querySelector(".date").value;
+    const c=renderActivity(a);if(!c)return;
+    c.querySelector("h2").textContent=group;
+    c.querySelector("img").alt=group+" illustration";
+    const label=document.createElement("label"),select=document.createElement("select");
+    label.textContent=group==="Parasailing"?"CHOOSE YOUR FLIGHT":"CHOOSE YOUR CHARTER";
+    select.className="variant";select.setAttribute("aria-label",label.textContent);
+    variants.forEach(v=>select.add(new Option(variantLabel(v),v.id)));
+    select.value=a.id;label.appendChild(select);c.querySelector(".desc").after(label);
+    select.onchange=()=>show(variants.find(v=>v.id===select.value));
+    if(date)c.querySelector(".date").value=date;
+    if(open&&!c.querySelector(".book").disabled)c.querySelector(".panel").classList.add("open");
+    const button=c.querySelector(".pay"),checkout=button.onclick;
+    if(checkout)button.onclick=async()=>{select.disabled=true;try{await checkout()}finally{select.disabled=false}};
+    if(previous)previous.replaceWith(c);
+    current=c;
+  }
+  show(variants[0]);
 }
 async function loadCatalog(){
   cat.textContent="Loading experiences…";
-  try{const activities=await fetchActivities();cat.textContent="";activities.forEach(renderActivity)}
+  try{const activities=await fetchActivities();cat.textContent="";const groups=new Map();activities.forEach(a=>{const key=activityGroup(a);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(a)});groups.forEach(renderGroup)}
   catch{cat.textContent="";msg("Experiences are temporarily unavailable. Please refresh to try again.")}
 }
 async function post(u,b){let r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}),x=await r.text(),d;try{d=JSON.parse(x)}catch{d={error:x}}if(!r.ok)throw Error(d.error||d.message||"HTTP "+r.status);return d}

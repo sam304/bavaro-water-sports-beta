@@ -12,7 +12,15 @@ const fixtures=[activity('Party Boat','per_person',55,{id:'8d727961-b436-4e2f-b7
   throw Error('Unexpected request '+url);
  };
  w.eval(html.match(/<script>\n([\s\S]*)<\/script>/)[1]);await new Promise(setImmediate);
- const card=title=>[...doc.querySelectorAll('.card')].find(c=>c.querySelector('h2').textContent===title);
+ const card=title=>{
+  const direct=[...doc.querySelectorAll('.card')].find(c=>c.querySelector('h2').textContent===title);if(direct)return direct;
+  const select=[...doc.querySelectorAll('.variant')].find(s=>[...s.options].some(o=>o.value===title));
+  assert.ok(select,'Variant found: '+title);select.value=title;select.dispatchEvent(new w.Event('change'));
+  return [...doc.querySelectorAll('.variant')].find(s=>s.value===title).closest('.card');
+ };
+ assert.equal(doc.querySelectorAll('.card').length,3);assert.equal(doc.querySelectorAll('.pic img').length,3);
+ assert.equal(doc.querySelectorAll('.variant').length,2);
+ assert.ok(doc.querySelector('.variant').textContent.includes('2 people fly together'));
  const setPax=(c,n)=>{c.querySelector('.pax').value=String(n);c.querySelector('.pax').dispatchEvent(new w.Event('change'))};
  const total=c=>c.querySelector('.total').textContent;
  const party=card('Party Boat');setPax(party,3);assert.equal(total(party),'Total: US$165.00');assert.equal(party.querySelector('.pax').options.length,8);
@@ -38,6 +46,18 @@ const fixtures=[activity('Party Boat','per_person',55,{id:'8d727961-b436-4e2f-b7
  await w.loadTicket('BWS-TEST-42','order-test');
  const support=new URL(doc.querySelector('#bookingSupport').href);assert.equal(support.pathname,'/18098993790');assert.ok(support.searchParams.get('text').includes('BWS-TEST-42'));
  assert.ok(doc.querySelector('#wa').href.startsWith('https://wa.me/?text='));assert.ok(doc.querySelector('#ticket').classList.contains('show'));
+ rows=structuredClone(fixtures);
+ w.fetch=async(url,options)=>url.includes('get-activity-catalog')?{ok:true,json:async()=>({activities:structuredClone(rows)})}:{ok:true,text:async()=>{orders.push(JSON.parse(options.body));return JSON.stringify({orderID:'variant-order',approvalUrl:'#approved'})}};
+ await w.loadCatalog();
+ for(const [i,name] of ['Single','Double','Triple'].entries()){
+  const c=card('Parasailing '+name);await c.querySelector('.pay').onclick();assert.equal(orders.at(-1).activityId,'Parasailing '+name);assert.equal(orders.at(-1).paxCount,i+1);
+ }
+ rows.slice(4).forEach((a,i)=>{a.max_guests=6;a.schedules=[{time_slot:['09:00:00','14:00:00','08:00:00'][i]}]});await w.loadCatalog();
+ for(const [i,a] of rows.slice(4).entries()){
+  const c=card(a.title);setPax(c,4);assert.equal(total(c),'Total: US'+new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(a.base_price_usd));
+  await c.querySelector('.pay').onclick();assert.equal(orders.at(-1).activityId,a.id);assert.equal(orders.at(-1).paxCount,4);assert.equal(orders.at(-1).timeSlot,['09:00','14:00','08:00'][i]);
+ }
+ assert.equal(doc.querySelectorAll('.card').length,3);
  w.fetch=async()=>{throw Error('offline')};await w.loadCatalog();assert.equal(doc.querySelectorAll('.pay').length,0);
  console.log('PASS: totals, package controls, guest bounds, missing/invalid capacity, missing charter schedules, refreshed price/capacity, PayPal payload, villa attribution, pending order and catalog failure.');dom.window.close();
 })().catch(e=>{console.error(e);process.exitCode=1});
