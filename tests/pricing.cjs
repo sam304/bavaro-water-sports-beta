@@ -31,6 +31,13 @@ const fixtures=[activity('Party Boat','per_person',55,{id:'8d727961-b436-4e2f-b7
  await w.loadCatalog();rows[0].base_price_usd=65;await card('Party Boat').querySelector('.pay').onclick();assert.equal(orders.length,1);assert.ok(doc.querySelector('#notice').textContent.includes('price has changed'));
  rows[4].max_guests=6;rows[4].schedules=[];await w.loadCatalog();assert.equal(card(rows[4].title).querySelector('.book').disabled,true);
  assert.ok(!/pricing_type|package_size|hostRef|commission|tracking/.test(doc.querySelector('#catalog').textContent));
+ assert.equal(new URL(doc.querySelector('#contactGeneral').href).pathname,'/18098993790');
+ for(const img of doc.querySelectorAll('.pic img')){assert.ok(fs.existsSync(img.getAttribute('src')));assert.equal(img.getAttribute('loading'),'lazy')}
+ w.QRCode=function(){};w.QRCode.CorrectLevel={M:0};
+ w.fetch=async()=>({ok:true,text:async()=>JSON.stringify({booking:{booking_code:'BWS-TEST-42',total_amount_usd:110,pax_count:2,activity:{title:'Parasailing Double'}}})});
+ await w.loadTicket('BWS-TEST-42','order-test');
+ const support=new URL(doc.querySelector('#bookingSupport').href);assert.equal(support.pathname,'/18098993790');assert.ok(support.searchParams.get('text').includes('BWS-TEST-42'));
+ assert.ok(doc.querySelector('#wa').href.startsWith('https://wa.me/?text='));assert.ok(doc.querySelector('#ticket').classList.contains('show'));
  w.fetch=async()=>{throw Error('offline')};await w.loadCatalog();assert.equal(doc.querySelectorAll('.pay').length,0);
  console.log('PASS: totals, package controls, guest bounds, missing/invalid capacity, missing charter schedules, refreshed price/capacity, PayPal payload, villa attribution, pending order and catalog failure.');dom.window.close();
 })().catch(e=>{console.error(e);process.exitCode=1});
