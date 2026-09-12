@@ -19,6 +19,7 @@ footer{text-align:center;color:var(--muted);padding:28px;font-size:12px}@media(m
 @media print{body{background:#fff}header,#catalog,#notice,footer,.actions{display:none!important}.ticket{display:block!important;box-shadow:none;max-width:none;margin:0;padding:0}.ticketqr{break-inside:avoid}}
 .pic{height:170px;overflow:hidden}.pic img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.badge{z-index:1}.contact{display:inline-block;margin:12px 0 0;padding:10px 14px;border:1px solid #087f8c;border-radius:10px;color:#087f8c;text-decoration:none;font-weight:700;font-size:14px}.support{margin-top:16px;border-top:1px solid #e5edf3;padding-top:12px;font-size:14px}.support a{color:#087f8c}.image-note{font-size:12px;color:var(--muted);text-align:center}
 </style>
+<link rel="stylesheet" href="presentation.css">
 </head>
 <body>
 <header><h1>BÁVARO WATER SPORTS</h1><p>Book your Punta Cana experience in seconds.</p><strong>No account · No app · PayPal Sandbox Beta</strong><br><a id="contactGeneral" class="contact" href="https://wa.me/18098993790?text=Hello%2C%20I%20have%20a%20question%20about%20B%C3%A1varo%20Water%20Sports." target="_blank" rel="noopener noreferrer">Questions? Chat with us on WhatsApp</a></header>
@@ -34,6 +35,7 @@ footer{text-align:center;color:var(--muted);padding:28px;font-size:12px}@media(m
 </main><footer><p class="image-note">Activity images are illustrative.</p>BWS Beta · Prices and schedules may be adjusted during beta.</footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="presentation.js"></script>
 <script>
 const SB="https://fmpizetnnltdpvlxvueu.supabase.co";
 const CREATE=SB+"/functions/v1/create-paypal-order", CAPTURE=SB+"/functions/v1/capture-paypal-order", TICKET=SB+"/functions/v1/get-booking-ticket";
@@ -76,6 +78,7 @@ function renderActivity(a){
   const style=original||items.find(x=>a.title.startsWith("Parasailing")?x.k==="para":a.title.startsWith("Deep Sea Fishing")?x.k==="fish":false);
   if(!style)return;
   const bounds=pricing(a),fixed=a.pricing_type==="fixed_package",charter=a.pricing_type==="private_charter";
+  if(bounds&&original?.k==="fish"&&a.pricing_type==="per_person")bounds.max=Math.min(bounds.max,7);
   const times=(a.schedules||[]).map(x=>String(x.time_slot).slice(0,5)).sort();
   // Preserve existing departures for legacy cards; new variants use their actual schedules.
   if(!times.length&&original)times.push("09:00","11:00","14:00","16:00");
@@ -83,7 +86,7 @@ function renderActivity(a){
   const detail=fixed&&bounds?`${bounds.min} ${bounds.min===1?"person":"people"}`:charter?`Private Charter${bounds?` · Up to ${bounds.max} guests`:""}`:"per person";
   const c=document.createElement("article");c.className="card";
   c.innerHTML=`<div class="pic">${style.b?`<span class="badge">${style.b}</span>`:""}${style.e}<img src="assets/activities/${style.k}.webp" alt="${esc(a.title)} illustration" width="768" height="512" loading="lazy" decoding="async" onerror="this.remove()"></div><div class="body"><h2>${esc(a.title)}</h2><p class="desc">${style.d}</p><div class="price">US${money(Number(a.base_price_usd))}${fixed||charter?" total":""}</div><div class="meta">${esc(detail)}</div>${!fixed&&!charter?`<div class="meta">🕒 ${esc(style.x)}</div>`:""}<div class="meta">🚐 Pickup available</div><button class="book" ${available?"":"disabled"}>${available?"BOOK NOW":"COMING SOON"}</button><div class="panel"><div class="row"><div><label>DATE</label><input class="date" type="date" min="${dateDR()}" value="${dateDR()}"></div><div><label>GUESTS</label><select class="pax" ${fixed?"disabled":""}></select></div></div><label>TIME / DEPARTURE</label><select class="time">${times.map(t=>`<option>${esc(t)}</option>`).join("")}</select><div class="total"></div><button class="pay" ${available?"":"disabled"}>CONTINUE TO PAYPAL</button></div></div>`;
-  cat.appendChild(c);if(!available)return c;
+  cat.appendChild(c);BWSView.enhance(c,a,style.k);if(!available)return c;
   const panel=c.querySelector(".panel"),pax=c.querySelector(".pax"),total=c.querySelector(".total");
   for(let n=bounds.min;n<=bounds.max;n++)pax.add(new Option(String(n),String(n)));
   const upd=()=>{const quote=pricing(a,+pax.value);total.textContent=quote?"Total: US"+money(quote.total):"Please select your guests.";c.querySelector(".pay").disabled=!quote};
@@ -131,7 +134,7 @@ function renderGroup(variants){
 }
 async function loadCatalog(){
   cat.textContent="Loading experiences…";
-  try{const activities=await fetchActivities();cat.textContent="";const groups=new Map();activities.forEach(a=>{const key=activityGroup(a);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(a)});groups.forEach(renderGroup)}
+  try{const activities=await fetchActivities();cat.textContent="";const groups=new Map();activities.forEach(a=>{const key=activityGroup(a);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(a)});const priority=['8d727961-b436-4e2f-b72f-b398090a01d6','Parasailing','Fishing Charter','176ff095-b3c9-4506-afae-e1e9068aef06','bbf66700-1ddd-48db-b031-220af4be23e2'];[...groups].sort(([a],[b])=>(priority.includes(a)?priority.indexOf(a):99)-(priority.includes(b)?priority.indexOf(b):99)).forEach(([,rows])=>renderGroup(rows));BWSView.localize();const target=document.getElementById(location.hash.slice(1));if(target)target.scrollIntoView?.()}
   catch{cat.textContent="";msg("Experiences are temporarily unavailable. Please refresh to try again.")}
 }
 async function post(u,b){let r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}),x=await r.text(),d;try{d=JSON.parse(x)}catch{d={error:x}}if(!r.ok)throw Error(d.error||d.message||"HTTP "+r.status);return d}

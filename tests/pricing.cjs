@@ -11,7 +11,7 @@ const fixtures=[activity('Party Boat','per_person',55,{id:'8d727961-b436-4e2f-b7
   if(url.includes('create-paypal-order')){orders.push(JSON.parse(options.body));return {ok:true,text:async()=>JSON.stringify({orderID:'test-order',approvalUrl:'#approved'})}}
   throw Error('Unexpected request '+url);
  };
- w.eval(html.match(/<script>\n([\s\S]*)<\/script>/)[1]);await new Promise(setImmediate);
+ w.eval(fs.readFileSync('presentation.js','utf8')+'\n'+html.match(/<script>\n([\s\S]*)<\/script>/)[1]);await new Promise(setImmediate);
  const card=title=>{
   const direct=[...doc.querySelectorAll('.card')].find(c=>c.querySelector('h2').textContent===title);if(direct)return direct;
   const select=[...doc.querySelectorAll('.variant')].find(s=>[...s.options].some(o=>o.value===title));
@@ -20,6 +20,10 @@ const fixtures=[activity('Party Boat','per_person',55,{id:'8d727961-b436-4e2f-b7
  };
  assert.equal(doc.querySelectorAll('.card').length,3);assert.equal(doc.querySelectorAll('.pic img').length,3);
  assert.equal(doc.querySelectorAll('.variant').length,2);
+ assert.equal(doc.querySelector('.card').id,'party');
+ assert.ok(doc.querySelector('#party').textContent.includes('3.5 hours'));
+ assert.ok(doc.querySelector('#para').textContent.includes('10–15 minutes'));
+ assert.equal(doc.querySelectorAll('.activity-gallery img').length,5);
  assert.ok(doc.querySelector('.variant').textContent.includes('2 people fly together'));
  const setPax=(c,n)=>{c.querySelector('.pax').value=String(n);c.querySelector('.pax').dispatchEvent(new w.Event('change'))};
  const total=c=>c.querySelector('.total').textContent;
@@ -58,6 +62,12 @@ const fixtures=[activity('Party Boat','per_person',55,{id:'8d727961-b436-4e2f-b7
   await c.querySelector('.pay').onclick();assert.equal(orders.at(-1).activityId,a.id);assert.equal(orders.at(-1).paxCount,4);assert.equal(orders.at(-1).timeSlot,['09:00','14:00','08:00'][i]);
  }
  assert.equal(doc.querySelectorAll('.card').length,3);
+ const selected=card('Parasailing Triple');selected.querySelector('.book').click();selected.querySelector('.date').value='2026-12-25';
+ const state=()=>[selected.querySelector('.variant').value,selected.querySelector('.date').value,selected.querySelector('.pax').value,selected.querySelector('.panel').classList.contains('open')];
+ const before=state();doc.querySelector('[data-language="es"]').click();await new Promise(setImmediate);
+ assert.equal(doc.documentElement.lang,'es');assert.ok(doc.querySelector('#party').textContent.includes('3 horas y media'));assert.ok(selected.textContent.includes('3 personas vuelan juntas'));assert.deepEqual(state(),before);
+ assert.ok(doc.querySelector('#ticket').textContent.includes('COMPROBANTE DE RESERVA'));
+ doc.querySelector('[data-language="en"]').click();await new Promise(setImmediate);assert.equal(doc.documentElement.lang,'en');assert.ok(selected.textContent.includes('3 people fly together'));assert.deepEqual(state(),before);
  w.fetch=async()=>{throw Error('offline')};await w.loadCatalog();assert.equal(doc.querySelectorAll('.pay').length,0);
  console.log('PASS: totals, package controls, guest bounds, missing/invalid capacity, missing charter schedules, refreshed price/capacity, PayPal payload, villa attribution, pending order and catalog failure.');dom.window.close();
 })().catch(e=>{console.error(e);process.exitCode=1});
